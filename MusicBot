@@ -1,3 +1,18 @@
+getgenv().Settings = {
+    prefix = "!",
+    mainAccount = "Your Main Account",
+    fpslimit = 30,
+    queueBot = "Your Main Bot",
+    webhookUrl = "YOUR_WEBHOOK",
+    flaskApiUrl = "http://127.0.0.1:5000",
+    altAccounts = {
+        ["AltAccount1"] = true,
+        ["AltAccount2"] = true,
+        ["AltAccount3"] = true,
+        ["AltAccount4"] = true --copy and paste to get more alts into here
+    }
+}
+
 loadstring(game:HttpGet("https://gist.github.com/kailon12345/cf3759004c4cb61bf4293a8920dfb104"))()
 --[[
 ==============================
