@@ -1,3 +1,4 @@
+#you have to download this and run it inside of a python file
 import subprocess
 import threading
 import yt_dlp
