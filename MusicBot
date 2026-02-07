@@ -1,1 +1,46 @@
 loadstring(game:HttpGet("https://gist.github.com/kailon12345/cf3759004c4cb61bf4293a8920dfb104"))()
+--[[
+==============================
+        MUSIC BOT COMMANDS
+==============================
+PREFIX: !
+------------------------------
+HOST SETUP COMMANDS
+------------------------------
+!setup
+    -- Starts system, positions players, enables queue
+!stop
+    -- Stops the queue system
+!host <username>
+    -- Transfers host to another player
+------------------------------
+PUBLIC PLAYER COMMANDS
+------------------------------
+/play <song name and artist>
+    -- Request a song (must be within 50 studs)
+/voteskip
+    -- Starts a 10 second vote to skip current song
+yes
+no
+    -- Vote during an active vote skip
+------------------------------
+HOST MUSIC CONTROLS
+------------------------------
+/skip
+    -- Force skip current song
+/queue
+    -- Show current queue
+/loop
+    -- Toggle looping
+/pause
+    -- Pause music
+/resume
+/unpause
+    -- Resume music
+/clearqueue
+    -- Clear entire queue
+/volume <0-100>
+    -- Set music volume
+/Circle
+/line
+]]
