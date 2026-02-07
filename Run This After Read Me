@@ -1,0 +1,214 @@
+import subprocess
+import threading
+import yt_dlp
+import psutil
+from flask import Flask, request, jsonify
+import time
+
+app = Flask(__name__)
+queue = []
+current_song = None
+current_video_title = None
+current_process = None
+loop = False
+volume = 100
+paused = False
+lock = threading.Lock()
+song_changed_flag = False
+
+FFPLAY_CMD = "ffplay"
+
+YDL_OPTS = {
+    "format": "bestaudio/best",
+    "quiet": True,
+    "default_search": "ytsearch",
+    "noplaylist": True,
+    "extractor_args": {'youtube': {'player_client': ['android', 'web']}}
+}
+
+def play_loop():
+    global current_process, current_song, current_video_title, paused, song_changed_flag
+    while True:
+        if not queue:
+            if current_process and current_process.poll() is not None:
+                current_process = None
+                if not loop: 
+                    current_song = None
+                    current_video_title = None
+                    paused = False
+                    song_changed_flag = True
+            time.sleep(1)
+            continue
+            
+        with lock:
+            song_query = queue.pop(0)
+            current_song = song_query
+            current_video_title = None
+            paused = False
+        
+        url = None
+        video_title = None
+        try:
+            with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+                info = ydl.extract_info(f"{song_query} lyrics", download=False)
+                if 'entries' in info:
+                    entry = info['entries'][0]
+                    url = entry['url']
+                    video_title = entry.get('title', song_query)
+                else:
+                    url = info["url"]
+                    video_title = info.get('title', song_query)
+        except Exception as e:
+            print(f"Search error: {e}")
+            continue
+
+        if url and video_title:
+            current_video_title = video_title
+            song_changed_flag = True
+            print(f"Now Playing: {current_video_title} (requested: {current_song}) at {volume}% volume")
+            vol_filter = f"volume={volume/100}"
+            
+            current_process = subprocess.Popen(
+                [
+                    FFPLAY_CMD, "-nodisp", "-autoexit", "-hide_banner",
+                    "-af", vol_filter,
+                    "-reconnect", "1", 
+                    "-reconnect_streamed", "1", 
+                    "-reconnect_delay_max", "5",
+                    url
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.PIPE
+            )
+            current_process.wait()
+        
+        if loop and current_song:
+            with lock: 
+                queue.insert(0, current_song)
+        
+        current_process = None
+        if not loop: 
+            current_song = None
+            current_video_title = None
+            paused = False
+
+def kill_player():
+    global current_process, paused, song_changed_flag
+    if current_process:
+        try:
+            parent = psutil.Process(current_process.pid)
+            for child in parent.children(recursive=True):
+                child.kill()
+            parent.kill()
+            print("Successfully killed player process.")
+            song_changed_flag = True
+        except Exception as e:
+            print(f"Force kill error: {e}")
+        current_process = None
+        paused = False
+
+@app.route("/play", methods=["POST"])
+def play():
+    query = request.json.get("query")
+    with lock: 
+        queue.append(query)
+    return jsonify({"status": "queued"})
+
+@app.route("/skip", methods=["POST"])
+def skip():
+    kill_player()
+    return jsonify({"status": "skipped"})
+
+@app.route("/pause", methods=["POST"])
+def pause():
+    global paused
+    if current_process and current_process.poll() is None:
+        try:
+            parent = psutil.Process(current_process.pid)
+            if not paused:
+                for child in parent.children(recursive=True):
+                    child.suspend()
+                parent.suspend()
+                paused = True
+                return jsonify({"status": "paused"})
+        except Exception as e:
+            print(f"Pause error: {e}")
+    return jsonify({"status": "error", "message": "not playing"})
+
+@app.route("/resume", methods=["POST"])
+def resume():
+    global paused
+    if current_process and current_process.poll() is None and paused:
+        try:
+            parent = psutil.Process(current_process.pid)
+            for child in parent.children(recursive=True):
+                child.resume()
+            parent.resume()
+            paused = False
+            return jsonify({"status": "resumed"})
+        except Exception as e:
+            print(f"Resume error: {e}")
+    return jsonify({"status": "error"})
+
+@app.route("/clearqueue", methods=["POST"])
+def clear():
+    with lock: 
+        queue.clear()
+    kill_player()
+    return jsonify({"status": "cleared"})
+
+@app.route("/loop", methods=["POST"])
+def toggle_loop():
+    global loop
+    loop = not loop
+    return jsonify({"loop": loop})
+
+@app.route("/volume", methods=["POST"])
+def set_volume():
+    global volume, current_song
+    vol = request.json.get("volume", 100)
+    new_volume = max(0, min(100, int(vol)))
+    
+    if new_volume != volume:
+        volume = new_volume
+        
+        if current_process and current_song:
+            with lock:
+                queue.insert(0, current_song)
+            kill_player()
+    
+    return jsonify({"volume": volume})
+
+@app.route("/status", methods=["GET"])
+def get_status():
+    global song_changed_flag
+    
+    next_song = queue[0] if len(queue) > 0 else None
+    
+    status = {
+        "current": current_song,
+        "current_title": current_video_title,
+        "next": next_song,
+        "queue": queue,
+        "song_changed": song_changed_flag
+    }
+    
+    if song_changed_flag:
+        song_changed_flag = False
+    
+    return jsonify(status)
+
+@app.route("/queue", methods=["GET"])
+def get_queue():
+    next_song = queue[0] if len(queue) > 0 else None
+    return jsonify({
+        "current": current_song,
+        "current_title": current_video_title,
+        "next": next_song,
+        "queue": queue
+    })
+
+if __name__ == "__main__":
+    threading.Thread(target=play_loop, daemon=True).start()
+    app.run(host="127.0.0.1", port=5000)
